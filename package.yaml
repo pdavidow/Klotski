@@ -21,7 +21,9 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
-- game-tree
+
+- tasty
+- tasty-hunit
 
 library:
   source-dirs: src
@@ -51,11 +53,14 @@ executables:
 
 tests:
   Klotski-test:
-    main:                Spec.hs
+    main:                test.hs
     source-dirs:         test
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Wall       
     dependencies:
     - Klotski
+    - tasty
+    - tasty-hunit    

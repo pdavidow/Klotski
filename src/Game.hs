@@ -4,16 +4,24 @@ module Game
     where     
 
 import Data.Function ( (&) )
-import Data.List (union)
-import Data.Tree.Game_tree.Game_tree
+import Data.List ((\\), find, foldr, sort, sortBy, union, unfoldr)
+import Debug.Trace (trace, traceIO)
+
+import Lib (newLineEvery)
 
 type Square = (Int, Int) -- (x, y) zero-based
+data Squares2 = Squares2 Square Square deriving (Eq, Show)
+data Squares4 = Squares4 Square Square Square Square deriving (Eq, Show)
 
-data Orientation = Horz | Vert deriving (Eq, Show)
+data Orientation = Horz | Vert deriving (Eq, Ord, Show)
 
-data Tile1 = Tile1 Square deriving (Eq, Show)   
-data Tile2  = Tile2 Orientation Square deriving (Eq, Show) -- left square for Horiz; top for Vert
-data Tile4 = Tile4 Square deriving (Eq, Show) -- top-left square
+data Tile1 = Tile1 Square deriving (Eq, Ord, Show)   
+data Tile2  = Tile2 Orientation Square deriving (Eq, Ord, Show) -- left square for Horiz; top for Vert
+--data Tile2 Orientation = Tile2 Square deriving (Eq, Show) -- left square for Horiz; top for Vert
+data Tile4 = Tile4 Square deriving (Eq, Ord, Show) -- top-left square
+
+-- type Tile1s = Tile1s Tile1 Tile1 Tile1 Tile1 deriving (Eq, Show)
+-- type Tile2s = Tile2s (Tile2 Horz) (Tile2 Vert) (Tile2 Vert) (Tile2 Vert) (Tile2 Vert) deriving (Eq, Show)
 
 data Space1 = Space1 Square deriving (Eq, Show)
 data Space2 = Space2 Orientation Square deriving (Eq, Show) -- left square for Horiz; top for Vert
@@ -23,181 +31,207 @@ data Spaces
     | Combined Space2
         deriving (Eq, Show)    
 
-data Board = Board [Tile1] [Tile2] Tile4 deriving (Eq, Show)   
+data Board = Board [Tile1] [Tile2] Tile4 deriving (Ord, Show)   
+-- todo https://hackage.haskell.org/package/sorted-list-0.2.1.0/docs/Data-SortedList.html
+-- data Board = Board Tile1s Tile2s Tile4 deriving (Eq, Show)   
 
-type ToIgnore1 = [(Tile1, Tile1)]
-type ToIgnore2 = [(Tile2, Tile2)]
-type ToIgnore4 = [(Tile4, Tile4)]
+data MoveTile1 = MoveTile1 Tile1 Tile1 deriving (Eq, Ord, Show)
+data MoveTile2 = MoveTile2 Tile2 Tile2 deriving (Eq, Ord, Show)
+data MoveTile4 = MoveTile4 Tile4 Tile4 deriving (Eq, Ord, Show)
 
-data MoveTile1 = MoveTile1 Tile1 Tile1 ToIgnore1 deriving (Eq, Show)
-data MoveTile2 = MoveTile2 Tile2 Tile2 ToIgnore2 deriving (Eq, Show)
-data MoveTile4 = MoveTile4 Tile4 Tile4 ToIgnore4 deriving (Eq, Show)
+data MoveTiles = MoveTiles [MoveTile1] [MoveTile2] [MoveTile4] deriving (Show)
 
-data MoveTiles = MoveTiles [MoveTile1] [MoveTile2] [MoveTile4] deriving (Eq, Show)
-
-data PriorMove
-    = PriorMove_MoveTile1 MoveTile1
-    | PriorMove_MoveTile2 MoveTile2
-    | PriorMove_MoveTile4 MoveTile4
-        deriving (Eq, Show)
-
-data StartState = StartState MoveTiles Board deriving (Eq, Show)
-data MidState = MidState PriorMove MoveTiles Board deriving (Eq, Show)
-data EndState = EndState PriorMove Board deriving (Eq, Show)
+data StartState = StartState Board deriving (Eq, Ord, Show)
+data MidState = MidState ParentState Board deriving (Eq, Ord, Show)
+data EndState = EndState ParentState Board deriving (Eq, Ord, Show)
  
+type ParentState = Tagged_State
+
 data Tagged_State
     = Tagged_StartState StartState
     | Tagged_MidState MidState
     | Tagged_EndState EndState
-        deriving (Eq, Show)
+        deriving (Eq, Ord, Show)     
+        
 
--------------------
-
-instance Game_tree Tagged_State 
-    where
-
-    is_terminal :: Tagged_State -> Bool
-    is_terminal (Tagged_StartState _) = False
-    is_terminal (Tagged_MidState _) = False
-    is_terminal (Tagged_EndState _) = True
+instance Eq Board where
+    (==) :: Board -> Board -> Bool
+    (==) (Board at1s at2s at4) (Board bt1s bt2s bt4) = 
+        ( at4 == bt4 ) &&
+        ( sort at2s == sort bt2s ) &&
+        ( sort at1s == sort bt1s )
 
 
-    node_value :: Tagged_State -> Int
-    node_value (Tagged_StartState _) = 0
-    node_value (Tagged_MidState x) = 
-        if isPriorMoveTile4 x then 
-            90
-        else if isPriorMoveTile2 x then 
-            50
-        else 
-            0
-    node_value (Tagged_EndState _) = 100
+instance Eq MoveTiles where
+    (==) :: MoveTiles -> MoveTiles -> Bool
+    (==) (MoveTiles at1s at2s at4s) (MoveTiles bt1s bt2s bt4s) =
+        ( sort at4s == sort bt4s ) &&
+        ( sort at2s == sort bt2s ) &&
+        ( sort at1s == sort bt1s )    
 
 
-    children :: Tagged_State -> [Tagged_State]
-    children x =
-        applyMoves x
+boardWidth :: Int
+boardWidth = 
+    4
 
+
+boardHeight :: Int
+boardHeight = 
+    5 
+    --3         
+
+
+squares2ToList :: Squares2 -> [Square]
+squares2ToList (Squares2 a b) =
+    [a, b]
+      
     
-------------------   
+squares4ToList :: Squares4 -> [Square]
+squares4ToList (Squares4 a b c d) =
+    [a, b, c, d]
 
-squares2 :: Orientation -> Square -> (Square, Square)
-squares2 o sq1@(i, j) = 
-    (sq1, sq2)   
+
+toSquares2 :: Orientation -> Square -> Squares2
+toSquares2 o sq1@(i, j) = 
+    Squares2 sq1 sq2
         where sq2 = case o of 
                 Horz -> (i + 1, j)
                 Vert -> (i, j + 1) 
  
 
-tSquares2 :: Tile2 -> (Square, Square)
-tSquares2 (Tile2 o sq) =
-    squares2 o sq
+tile2ToSquares :: Tile2 -> Squares2
+tile2ToSquares (Tile2 o sq) =
+    toSquares2 o sq
 
 
-sSquares2 :: Space2 -> (Square, Square)
-sSquares2 (Space2 o sq) =
-    squares2 o sq
+spacesToSquares :: Spaces -> Squares2
+spacesToSquares (Separate (Space1 a) (Space1 b)) = 
+    Squares2 a b    
+spacesToSquares (Combined x) = 
+    space2ToSquares x
 
 
-tSquares4 :: Tile4 -> (Square, Square, Square, Square)
-tSquares4 (Tile4 topLeft@(i, j)) = 
-    (topLeft, topRight, bottomLeft, bottomRight)
+space2ToSquares :: Space2 -> Squares2
+space2ToSquares (Space2 o sq) =
+    toSquares2 o sq
+
+
+tile4ToSquares :: Tile4 -> Squares4
+tile4ToSquares (Tile4 topLeft@(i, j)) = 
+    Squares4 topLeft topRight bottomLeft bottomRight
         where
             topRight = (i + 1, j)
             bottomLeft = (i, j + 1)
-            bottomRight = (i + 1, j + 1)       
-        
-        
-boardWidth :: Int
-boardWidth = 4
+            bottomRight = (i + 1, j + 1)     
 
 
-boardHeight :: Int
-boardHeight = 5     
-
-
-moveTile1 :: Board -> MoveTile1 -> Tagged_State
-moveTile1 (Board t1s t2s t4) m@(MoveTile1 tile1 tile1' toIgnore1) =
+isMirror :: Board -> Board -> Bool
+isMirror (Board ta1s ta2s ta4) (Board tb1s tb2s tb4) = 
+    -- horizontal symmetry
     let
-        t1s' = map (\ t -> if t == tile1 then tile1' else t) t1s
-        board = Board t1s' t2s t4
+        isMirrorTile1 :: (Tile1, Tile1) -> Bool
+        isMirrorTile1 ((Tile1 aSq), (Tile1 bSq)) =
+            isMirrorSquare (aSq, bSq)    
 
-        priorMove = PriorMove_MoveTile1 m
+        isMirrorTile2 :: (Tile2, Tile2) -> Bool
+        isMirrorTile2 ((Tile2 ao aSq), (Tile2 bo bSq)) =
+            ao == bo &&
+                case ao of
+                    Horz -> isMirrorHorz (aSq, bSq)
+                    Vert -> isMirrorVert (aSq, bSq)  
+            
+        isMirrorTile4 :: (Tile4, Tile4) -> Bool
+        isMirrorTile4 ((Tile4 aSq), (Tile4 bSq)) =
+            isMirrorHorz (aSq, bSq)  
 
-        (MoveTiles mt1s mt2s mt4s) = tilesToMove board
-        f = \ (MoveTile1 t t' _) -> not $ any (\ x -> x == (t, t')) toIgnore1
-        mt1s' = filter f mt1s
-        moveTiles = MoveTiles mt1s' mt2s mt4s
-        --moveTiles = MoveTiles mt1s mt2s mt4s
+        isMirrorTile1s :: ([Tile1], [Tile1]) -> Bool
+        isMirrorTile1s (as, bs) =
+            all (\a -> any (\b -> isMirrorTile1 (a, b)) bs) as
+
+        isMirrorTile2s :: ([Tile2], [Tile2]) -> Bool
+        isMirrorTile2s (as, bs) =
+            all (\a -> any (\b -> isMirrorTile2 (a, b)) bs) as
+
+        isMirrorSquare :: (Square, Square) -> Bool
+        isMirrorSquare ((ai, aj), (bi, bj)) =  
+            (aj == bj) && 
+            (ai == boardWidth - bi - 1)    
+            
+        isMirrorHorz :: (Square, Square) -> Bool
+        isMirrorHorz ((ai, aj), (bi, bj)) =   
+            (aj == bj) && 
+            (ai == boardWidth - bi - 2)    
+            
+        isMirrorVert :: (Square, Square) -> Bool      
+        isMirrorVert x =   
+            isMirrorSquare x  
     in
-        if isSolved board then
-            Tagged_EndState $ EndState priorMove board
-        else
-            Tagged_MidState $ MidState priorMove moveTiles board
+        isMirrorTile4 (ta4, tb4) &&
+        isMirrorTile2s (ta2s, tb2s) &&
+        isMirrorTile1s (ta1s, tb1s) 
 
 
-moveTile2 :: Board -> MoveTile2 -> Tagged_State
-moveTile2 (Board t1s t2s t4) m@(MoveTile2 tile2 tile2' toIgnore2) =
+toNonStartState :: ParentState -> Board -> Tagged_State
+toNonStartState x b =
+    if isSolved b then
+        Tagged_EndState $ EndState x b
+    else
+        Tagged_MidState $ MidState x b
+
+
+moveTile1 :: Tagged_State -> MoveTile1 -> Tagged_State
+moveTile1 x (MoveTile1 tile1 tile1') =
     let
-        t2s' = map (\ t -> if t == tile2 then tile2' else t) t2s
-        board = Board t1s t2s' t4
+        (Board t1s t2s t4) = toBoard x
+        --t1s' = map (\ t -> if t == tile1 then tile1' else t) t1s
 
-        priorMove = PriorMove_MoveTile2 m
+        f = (\ t (isDone, ts) -> if not isDone && t == tile1 then (True, tile1' : ts) else (False, t : ts))
+        (_, t1s') = foldr f (False, []) t1s
 
-        (MoveTiles mt1s mt2s mt4s) = tilesToMove board
-        f = \ (MoveTile2 t t' _) -> not $ any (\ x -> x == (t, t')) toIgnore2
-        mt2s' = filter f mt2s
-        moveTiles = MoveTiles mt1s mt2s' mt4s
-        --moveTiles = MoveTiles mt1s mt2s mt4s
+        t1s'' = sort t1s' -- for efficiency
     in
-        if isSolved board then
-            Tagged_EndState $ EndState priorMove board
-        else
-            Tagged_MidState $ MidState priorMove moveTiles board
+        toNonStartState x $ Board t1s'' t2s t4
 
 
-moveTile4 :: Board -> MoveTile4 -> Tagged_State
-moveTile4 (Board t1s t2s t4) m@(MoveTile4 tile4 tile4' toIgnore4) =
+moveTile2 :: Tagged_State -> MoveTile2 -> Tagged_State
+moveTile2 x (MoveTile2 tile2 tile2') =
     let
-        board = Board t1s t2s tile4'
+        (Board t1s t2s t4) = toBoard x
+        --t2s' = map (\ t -> if t == tile2 then tile2' else t) t2s
 
-        priorMove = PriorMove_MoveTile4 m
+        f = (\ t (isDone, ts) -> if not isDone && t == tile2 then (True, tile2' : ts) else (False, t : ts))        
+        (_, t2s') = foldr f (False, []) t2s
 
-        (MoveTiles mt1s mt2s mt4s) = tilesToMove board
-        f = \ (MoveTile4 t t' _) -> not $ any (\ x -> x == (t, t')) toIgnore4
-        mt4s' = filter f mt4s
-        moveTiles = MoveTiles mt1s mt2s mt4s'
-        --moveTiles = MoveTiles mt1s mt2s mt4s
+        t2s'' = sort t2s' -- for efficiency
     in
-        if isSolved board then
-            Tagged_EndState $ EndState priorMove board
-        else
-            Tagged_MidState $ MidState priorMove moveTiles board
+        toNonStartState x $ Board t1s t2s'' t4
 
 
-tilesToMove :: Board -> MoveTiles
-tilesToMove b =
+moveTile4 :: Tagged_State -> MoveTile4 -> Tagged_State
+moveTile4 x (MoveTile4 _ tile4') =
+    let
+        (Board t1s t2s _) = toBoard x
+    in
+        toNonStartState x $ Board t1s t2s tile4'
+
+
+movesOn :: Board -> MoveTiles
+movesOn b =
+    --case trace ("\nfindSpaces b: " ++ (show $ findSpaces b)) findSpaces b of
     case findSpaces b of
         Separate sa sb -> 
             let
-                (MoveTiles a1s a2s a4s) = tilesToMoveForSeparateSpace1 b sa
-                (MoveTiles b1s b2s b4s) = tilesToMoveForSeparateSpace1 b sb
+                (MoveTiles a1s a2s a4s) = movesOnSeparateSpace1 b sa
+                (MoveTiles b1s b2s b4s) = movesOnSeparateSpace1 b sb
             in
                 MoveTiles (a1s ++ b1s) (a2s ++ b2s) (a4s ++ b4s)
 
         Combined s -> 
-            tilesToMoveForSpace2 b s
+            movesOnSpace2 b s
 
 
--- tilesToMove :: Board -> MoveTiles
--- tilesToMove b@(Board t1s t2s t4 spaces) =
---     case spaces of
---         Separate sa1 sb1 -> tilesToMoveForSeparateSpace1 t1s t2s (sa1, sb1)
---         Combined s2 -> tilesToMoveForSpace2 t1s t2s t4 s2
-
-
-tilesToMoveForSeparateSpace1 :: Board -> Space1 -> MoveTiles
-tilesToMoveForSeparateSpace1 b (Space1 sSq@(i, j)) =
+movesOnSeparateSpace1 :: Board -> Space1 -> MoveTiles
+movesOnSeparateSpace1 b (Space1 sSq@(i, j)) =
     let
         (Board t1s t2s _) = b
 
@@ -213,7 +247,7 @@ tilesToMoveForSeparateSpace1 b (Space1 sSq@(i, j)) =
                             tSq == (i, j - 1) ||
                             tSq == (i, j + 1)
                         then
-                            [ MoveTile1 source dest [(dest, source)] ]
+                            [ MoveTile1 source dest ]
                         else 
                             []                    
                 in
@@ -221,9 +255,9 @@ tilesToMoveForSeparateSpace1 b (Space1 sSq@(i, j)) =
             ) [] t1s 
 
         mt2s = foldr 
-            ( \ source@(Tile2 tO tSq) acc -> 
+            ( \ source@(Tile2 tO _) acc -> 
                 let   
-                    (t1, t2) = tSquares2 source
+                    (Squares2 t1 t2) = tile2ToSquares source
                     
                     mbDestSq =    
                         case tO of
@@ -237,7 +271,7 @@ tilesToMoveForSeparateSpace1 b (Space1 sSq@(i, j)) =
                                 else if t1 == (i, j + 1) then Just sSq
                                 else Nothing     
                                 
-                    result = maybe [] (\ destSq -> let dest = Tile2 tO destSq in [MoveTile2 source dest [(dest, source)]]) mbDestSq
+                    result = maybe [] (\ x -> [MoveTile2 source $ Tile2 tO x]) mbDestSq
                 in
                     acc ++ result                     
             ) [] t2s 
@@ -245,10 +279,10 @@ tilesToMoveForSeparateSpace1 b (Space1 sSq@(i, j)) =
         MoveTiles mt1s mt2s []
 
 
-tilesToMoveForSpace2 :: Board -> Space2 -> MoveTiles
-tilesToMoveForSpace2 b@(Board t1s t2s t4) s@(Space2 sO sSq) =
+movesOnSpace2 :: Board -> Space2 -> MoveTiles
+movesOnSpace2 (Board t1s t2s t4) s@(Space2 sO sSq) =
     let
-        (s1, s2) = sSquares2 s
+        (Squares2 s1 s2) = space2ToSquares s
         (s1i, s1j) = s1
         (s2i, s2j) = s2
             
@@ -257,118 +291,71 @@ tilesToMoveForSpace2 b@(Board t1s t2s t4) s@(Space2 sO sSq) =
                 let
                     result =                         
                         let
-                            mbDestSq =     
+                            mbDestSqs =     
                                 case sO of
                                     Horz ->                        
-                                        if      tSq == (s1i, s1j - 1) || tSq == (s1i, s1j + 1) || tSq == (s1i - 1, s1j) then Just s1 -- surround left 
-                                        else if tSq == (s2i, s2j - 1) || tSq == (s2i, s2j + 1) || tSq == (s2i + 1, s2j) then Just s2 -- surround right 
+                                        if      tSq == (s1i, s1j - 1) || tSq == (s1i, s1j + 1) then Just [s1] -- top, bottom on left
+                                        else if tSq == (s2i, s2j - 1) || tSq == (s2i, s2j + 1) then Just [s2] -- top, bottom on right
+                                        else if tSq == (s1i - 1, s1j) || tSq == (s2i + 1, s1j) then Just [s1, s2] -- left, right cap
                                         else Nothing -- never the case
 
                                     Vert ->
-                                        if      tSq == (s1i - 1, s1j) || tSq == (s1i + 1, s1j) || tSq == (s1i, s1j - 1) then Just s1 -- surround top 
-                                        else if tSq == (s2i - 1, s2j) || tSq == (s2i + 1, s2j) || tSq == (s2i, s2j + 1) then Just s2 -- surround bottom 
+                                        if      tSq == (s1i - 1, s1j) || tSq == (s1i + 1, s1j) then Just [s1] -- left, right on top                                        
+                                        else if tSq == (s2i - 1, s2j) || tSq == (s2i + 1, s2j) then Just [s2] -- left, right on bottom 
+                                        else if tSq == (s1i, s1j - 1) || tSq == (s2i, s2j + 1) then Just [s1, s2] -- top, bottom cap                                        
                                         else Nothing -- never the case                                        
                         in
-                            maybe [] (\ destSq -> let dest = Tile1 destSq in [MoveTile1 source dest [(dest, source)]]) mbDestSq
+                            maybe [] (\ xs -> map (\ x -> MoveTile1 source $ Tile1 x) xs) mbDestSqs
                 in
                     acc ++ result
             ) [] t1s 
                             
         mt2s = foldr 
-            ( \ source@(Tile2 tO tSq) acc ->                         
+            ( \ source@(Tile2 tO _) acc ->                         
                 let   
-                    (t1, t2) = tSquares2 source         
-                    
-                    result =  
-                        case sO of
-                            Horz ->    
-                                case tO of
-                                    Horz ->
-                                        if t1 == (s1i, s1j - 1) || t1 == (s1i, s1j + 1) then -- top, bottom
-                                            let 
-                                                dest = Tile2 tO sSq 
-                                            in 
-                                                [MoveTile2 source dest [(dest, source)]]
+                    (Squares2 t1 t2) = tile2ToSquares source  
 
-                                        else if t2 == (s1i - 1, s1j) then -- left
-                                            let
-                                                dest1 = Tile2 tO (s1i - 1, s1j)
-                                                dest2 = Tile2 tO s1
-                                            in
-                                                [ MoveTile2 source dest1 [(dest1, source), (dest1, dest2)]
-                                                , MoveTile2 source dest2 [(dest2, source), (dest2, dest1)]
-                                                ]
+                    result =                         
+                        let
+                            mbDestSqs =   
+                                case sO of
+                                    Horz ->    
+                                        case tO of
+                                            Horz ->
+                                                if      t1 == (s1i, s1j - 1) || t1 == (s1i, s1j + 1) then Just [sSq] -- top, bottom
+                                                else if t2 == (s1i - 1, s1j) then Just [(s1i - 1, s1j), s1] -- left
+                                                else if t1 == (s2i + 1, s1j) then Just [s2, s1] -- right                                                  
+                                                else Nothing
 
-                                        else if t1 == (s2i + 1, s1j) then -- right
-                                            let
-                                                dest1 = Tile2 tO s2
-                                                dest2 = Tile2 tO s1
-                                            in
-                                                [ MoveTile2 source dest1 [(dest1, source), (dest1, dest2)]
-                                                , MoveTile2 source dest2 [(dest2, source), (dest2, dest1)]
-                                                ]                                                    
-                                        else 
-                                            []
-
-                                    Vert ->
-                                        let
-                                            mbDestSq = 
-                                                if      t2 == (s1i, s1j - 1) || t2 == (s2i, s2j - 1) then Just t2 -- top left, top right
-                                                else if t1 == (s1i, s1j + 1) then Just s1 -- bottom left 
-                                                else if t1 == (s2i, s2j + 1) then Just s2 -- bottom right         
+                                            Vert ->
+                                                if      t2 == (s1i, s1j - 1) || t2 == (s2i, s2j - 1) then Just [t2] -- top left, top right
+                                                else if t1 == (s1i, s1j + 1) then Just [s1] -- bottom left 
+                                                else if t1 == (s2i, s2j + 1) then Just [s2] -- bottom right         
                                                 else Nothing  
-                                        in
-                                            maybe [] (\ destSq -> let dest = Tile2 tO destSq in [MoveTile2 source dest [(dest, source)]]) mbDestSq
 
-                            Vert ->  
-                                case tO of
-                                    Horz -> 
-                                        let
-                                            mbDestSq = 
-                                                if      t2 == (s1i - 1, s1j) || t2 == (s2i - 1, s2j)then Just t2 -- top left, bottom left      
-                                                else if t1 == (s1i + 1, s1j) then Just s1 -- top right     
-                                                else if t1 == (s2i + 1, s2j) then Just s2 -- bottom right                                             
+                                    Vert ->  
+                                        case tO of
+                                            Horz -> 
+                                                if      t2 == (s1i - 1, s1j) || t2 == (s2i - 1, s2j) then Just [t2] -- top left, bottom left      
+                                                else if t1 == (s1i + 1, s1j) then Just [s1] -- top right     
+                                                else if t1 == (s2i + 1, s2j) then Just [s2] -- bottom right                                             
                                                 else Nothing  
-                                        in
-                                            maybe [] (\ destSq -> let dest = Tile2 tO destSq in [MoveTile2 source dest [(dest, source)]]) mbDestSq
 
-
-                                    Vert -> 
-                                        if t1 == (s1i - 1, s1j) || t1 == (s1i + 1, s1j) then -- left, right
-                                            let 
-                                                dest = Tile2 tO sSq 
-                                            in 
-                                                [MoveTile2 source dest [(dest, source)]]       
-                                                
-                                        else if t2 == (s1i, s1j - 1) then -- top
-                                            let
-                                                dest1 = Tile2 tO (s1i, s1j - 1)
-                                                dest2 = Tile2 tO s1
-                                            in
-                                                [ MoveTile2 source dest1 [(dest1, source), (dest1, dest2)]
-                                                , MoveTile2 source dest2 [(dest2, source), (dest2, dest1)]
-                                                ]      
-                                                
-                                                
-                                        else if t1 == (s2i, s2j - 1) then -- bottom
-                                            let
-                                                dest1 = Tile2 tO s2
-                                                dest2 = Tile2 tO s1
-                                            in
-                                                [ MoveTile2 source dest1 [(dest1, source), (dest1, dest2)]
-                                                , MoveTile2 source dest2 [(dest2, source), (dest2, dest1)]
-                                                ]     
-                                                
-                                        else 
-                                            []                                                
+                                            Vert -> 
+                                                if      t1 == (s1i - 1, s1j) || t1 == (s1i + 1, s1j) then Just [sSq] -- left, right                                                            
+                                                else if t2 == (s1i, s1j - 1) then Just [(s1i, s1j - 1), s1] -- top                                                                                                     
+                                                else if t1 == (s2i, s2j - 1) then Just [s2, s1]  -- bottom                                                        
+                                                else Nothing            
+                        in
+                            maybe [] (\ xs -> map (\ x -> MoveTile2 source $ Tile2 tO x) xs) mbDestSqs                                                                                         
                 in
                     acc ++ result                          
             ) [] t2s      
             
         mt4s = foldr 
-            ( \ source@(Tile4 tSq) acc ->                         
+            ( \ source acc ->                         
                 let   
-                    (t_topLeft, t_topRight, t_bottomLeft, t_bottomRight) = tSquares4 source  
+                    (Squares4 t_topLeft t_topRight t_bottomLeft _) = tile4ToSquares source  
                                         
                     result =  
                         let
@@ -384,7 +371,7 @@ tilesToMoveForSpace2 b@(Board t1s t2s t4) s@(Space2 sO sSq) =
                                         else if t_topRight == (s1i - 1, s1j) then Just t_topRight -- right          
                                         else Nothing                                                                                                        
                         in
-                            maybe [] (\ destSq -> let dest = Tile4 destSq in [MoveTile4 source dest [(dest, source)]]) mbDestSq                                
+                            maybe [] (\ x -> [MoveTile4 source $ Tile4 x]) mbDestSq                                
                 in
                     acc ++ result 
             ) [] [t4]                     
@@ -392,52 +379,38 @@ tilesToMoveForSpace2 b@(Board t1s t2s t4) s@(Space2 sO sSq) =
         MoveTiles mt1s mt2s mt4s
 
 
-emptySquares :: [Square]
-emptySquares =
+boardSquares :: [Square]
+boardSquares =
     [ (i,j)::Square | i <- [0..(boardWidth-1)], j <- [0..(boardHeight - 1)] ]
 
 
 toString :: Board -> String
-toString b = undefined
-    -- let 
-    --     sepV = ":"
-    --     sepH = "."
-    --     sepSpanH = concat $ repeat sepH
-    -- in
-    --     "................." -- ++
+toString b@(Board t1s t2s t4) = 
+   let
+        t1Char = '1'
+        t2Char o = case o of 
+            Horz -> 'h' 
+            Vert -> 'v'
+        t4Char = '4'
+        spaceChar = '*'
 
---  .................
---  : 2 : 4   4 : 2 :
---  :   :       :   :
---  : 2 : 4   4 : 2 :
---  .................
---  : 2 : 2   2 : 2 :
---  :   :.......:   :
---  : 2 : 1 : 1 : 2 :
---  :...............:
---  : 1 : o : o : 1 :
---  .................
-
-
---  .................
---  :   :       :   :
---  : 2 :   4   : 2 :
---  :   :       :   :
---  .................
---  :   :   2   :   :
---  : 2 :.......: 2 :
---  :   : 1 : 1 :   :
---  :...............:
---  : 1 : o : o : 1 :
---  .................
+        t1Pixels = map (\(Tile1 sq) -> (sq, t1Char)) t1s
+        t2Pixels = concatMap (\t@(Tile2 o _) -> let char = t2Char o in map (\sq -> (sq, char)) $ squares2ToList $ tile2ToSquares t) t2s
+        t4Pixels = map (\sq -> (sq, t4Char)) $ squares4ToList $ tile4ToSquares t4   
+        spacePixels = map (\sq -> (sq, spaceChar)) $ squares2ToList $ spacesToSquares $ findSpaces b
+    in
+        t1Pixels ++ t2Pixels ++ t4Pixels ++ spacePixels
+            & sortBy (\((ai, aj), _) ((bi, bj), _) -> compare (bj, bi) (aj, ai))
+            & map (\(_, c) -> c)            
+            & newLineEvery boardWidth
 
 
 tileSquares :: Board -> [Square]
 tileSquares (Board t1s t2s t4) =
     let
         t1Sqs = map (\(Tile1 sq) -> sq) t1s
-        t2Sqs = concatMap (\t -> let (a, b)       = tSquares2 t in [a, b]) t2s
-        t4Sqs = concatMap (\t -> let (a, b, c, d) = tSquares4 t in [a, b, c, d]) [t4]
+        t2Sqs = concatMap (squares2ToList . tile2ToSquares) t2s
+        t4Sqs = squares4ToList $ tile4ToSquares t4
     in
         t1Sqs ++ t2Sqs ++ t4Sqs
 
@@ -445,8 +418,7 @@ tileSquares (Board t1s t2s t4) =
 findSpaces :: Board -> Spaces
 findSpaces b =
     let
-        tSqs = tileSquares b
-        sSqs = filter (\sSq -> not $ any (\tSq -> sSq == tSq) tSqs) emptySquares
+        sSqs = boardSquares \\ tileSquares b  
 
         s0 = sSqs !! 0
         s1 = sSqs !! 1
@@ -480,71 +452,130 @@ findSpaces b =
             result
 
 
+toBoard :: Tagged_State -> Board
+toBoard (Tagged_StartState (StartState x)) = x
+toBoard (Tagged_MidState (MidState   _ x)) = x
+toBoard (Tagged_EndState (EndState   _ x)) = x
+
+
+startState :: Tagged_State
+startState =
+    Tagged_StartState $ StartState startBoard
+
+
 startBoard :: Board
-startBoard =    
-    let
-        t1s = 
+startBoard =
+    let  
+        t1s = sort -- for efficiency
             [ Tile1 (1, 3)
             , Tile1 (2, 3)
             , Tile1 (0, 4)
             , Tile1 (3, 4)
-            ]
+            ]  
 
-        t2s = 
+        t2s = sort -- for efficiency
             [ Tile2 Horz (1, 2)
             , Tile2 Vert (0, 0)
             , Tile2 Vert (3, 0)
             , Tile2 Vert (0, 2)
             , Tile2 Vert (3, 2)
-            ]
+            ]    
 
         t4 = Tile4 (1, 0)
     in
-        Board t1s t2s t4
+        Board t1s t2s t4  
+
+    -- let  
+    --     t1s = 
+    --         [ Tile1 (1, 2)
+    --         , Tile1 (2, 2)
+    --         ]  
+
+    --     t2s = 
+    --         [ Tile2 Vert (0, 0)
+    --         , Tile2 Vert (3, 0)
+    --         ]    
+
+    --     t4 = Tile4 (1, 0)
+    -- in
+    --     Board t1s t2s t4  
 
 
-isPriorMoveTile2 :: MidState -> Bool
-isPriorMoveTile2 (MidState priorMove _ _) =    
-    case priorMove of  
-        PriorMove_MoveTile2 _ -> True
-        _ -> False
-
-
-isPriorMoveTile4 :: MidState -> Bool
-isPriorMoveTile4 (MidState priorMove _ _) =    
-    case priorMove of  
-        PriorMove_MoveTile4 _ -> True
-        _ -> False
-
-
-boardFromState :: Tagged_State -> Board
-boardFromState (Tagged_StartState (StartState _ x)) = x
-boardFromState (Tagged_MidState (MidState   _ _ x)) = x
-boardFromState (Tagged_EndState (EndState     _ x)) = x
-
-
-startState :: StartState
-startState =
-    StartState moveTiles board
-        where 
-            board = startBoard
-            moveTiles = tilesToMove board
-
-
-applyMoves :: Tagged_State -> [Tagged_State]
-applyMoves taggedState =
+childStates :: Tagged_State -> [Tagged_State]
+childStates x =
     let
-        f = \ (MoveTiles mt1s mt2s mt4s) board ->
-            map (moveTile1 board) mt1s ++
-            map (moveTile2 board) mt2s ++
-            map (moveTile4 board) mt4s 
+        (MoveTiles mt1s mt2s mt4s) = movesOn $ toBoard x   
     in
-        case taggedState of
-            Tagged_StartState (StartState moveTiles board) -> f moveTiles board
-            Tagged_MidState (MidState _   moveTiles board) -> f moveTiles board
-            Tagged_EndState _                              -> []
+        if isEndState x then
+            []
+        else
+            map (moveTile1 x) mt1s ++
+            map (moveTile2 x) mt2s ++
+            map (moveTile4 x) mt4s       
+            
+
+childStatesOfInterest :: [Tagged_State] -> Tagged_State -> [Tagged_State]
+childStatesOfInterest visited x = 
+    let
+        f :: Tagged_State -> Bool
+        f c = 
+            not $ any (\v -> 
+                let
+                    cb = toBoard c
+                    vb = toBoard v
+                in
+                    (==) cb vb || isMirror cb vb) visited                    
+    in
+        filter f $ childStates x
 
 
 isSolved :: Board -> Bool
-isSolved (Board _ _ t4) = 
-    tSquares4 t4 == ((1,3), (2,3), (1,4), (2,4))
+isSolved (Board _ _ (Tile4 sq)) = 
+    sq == (1, 3)
+    --sq == (1, 1)
+
+
+isEndState :: Tagged_State -> Bool
+isEndState (Tagged_EndState _) = True
+isEndState _ = False
+
+
+solution :: [Board] 
+solution =   
+    -- breadth-first search: use queue (better Data.Sequence) to first vist all children before moving to grandchildren
+    -- http://aleph.nz/post/search_in_haskell/
+
+    let
+        go :: [Tagged_State] -> [Tagged_State] -> [Tagged_State]
+        go _ [] = error "solution not reached"
+        go visited toBeVisited =
+            let
+                --current = trace("current :\n" ++ (toString $ toBoard $ last toBeVisited)) last toBeVisited
+                -- current = trace("current :\n" ++ (show $ toBoard $ last toBeVisited)) last toBeVisited
+                -- visited' = trace ("\n\nvisited' : " ++ show (visited ++ [current])) visited ++ [current]
+                -- q = trace ("\ntoBeVisited : " ++ concatMap ((++) "\n" . toString . toBoard) toBeVisited) toBeVisited
+                --toBeVisited' = trace ("\ntoBeVisited' : " ++ concatMap ((++) "\n" . toString . toBoard) (childStatesOfInterest visited current ++ init toBeVisited)) (childStatesOfInterest visited current) ++ init toBeVisited
+            
+                current = last toBeVisited
+                --visited' = visited ++ [current]
+                visited' = current : visited
+                toBeVisited' = childStatesOfInterest visited current ++ init toBeVisited
+            in            
+                if isEndState current then
+                    visited'
+                else
+                    go visited' toBeVisited'
+
+        xs = go [] [startState]
+        lastVisited = last xs
+
+        f :: Tagged_State -> Maybe (Board, Tagged_State)
+        f x = 
+            case x of
+                Tagged_StartState _ -> Nothing
+                Tagged_MidState (MidState p b) -> Just (b, p)
+                Tagged_EndState (EndState p b) -> Just (b, p)
+
+        headlessTrail = reverse $ unfoldr f lastVisited
+    in
+        (toBoard $ head xs) : headlessTrail
