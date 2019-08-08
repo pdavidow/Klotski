@@ -96,7 +96,7 @@ toSquares2 o sq1@(i, j) =
     Squares2 sq1 sq2
         where sq2 = case o of 
                 Horz -> (i + 1, j)
-                Vert -> (i, j + 1) 
+                Vert -> (i    , j + 1) 
  
 
 tile2ToSquares :: Tile2 -> Squares2
@@ -224,7 +224,7 @@ movesOn b =
                 (MoveTiles a1s a2s a4s) = movesOnSeparateSpace1 b sa
                 (MoveTiles b1s b2s b4s) = movesOnSeparateSpace1 b sb
             in
-                MoveTiles (a1s ++ b1s) (a2s ++ b2s) (a4s ++ b4s)
+                MoveTiles (sort (a1s ++ b1s)) (sort (a2s ++ b2s)) (sort (a4s ++ b4s))
 
         Combined s -> 
             movesOnSpace2 b s
@@ -236,30 +236,30 @@ movesOnSeparateSpace1 b (Space1 sSq@(i, j)) =
         (Board t1s t2s _) = b
 
         mt1s = foldr 
-            ( \ source@(Tile1 tSq) acc -> 
+            (\ source@(Tile1 tSq) acc -> 
                 let
                     dest = Tile1 sSq
 
-                    result = 
+                    result = maybe [] (\ x -> [MoveTile1 source x]) $
                         if 
                             tSq == (i - 1, j) ||
                             tSq == (i + 1, j) ||
                             tSq == (i, j - 1) ||
                             tSq == (i, j + 1)
                         then
-                            [ MoveTile1 source dest ]
+                            Just dest
                         else 
-                            []                    
+                            Nothing             
                 in
                     acc ++ result 
             ) [] t1s 
 
         mt2s = foldr 
-            ( \ source@(Tile2 tO _) acc -> 
+            (\ source@(Tile2 tO _) acc -> 
                 let   
                     (Squares2 t1 t2) = tile2ToSquares source
                     
-                    mbDestSq =    
+                    result = maybe [] (\ x -> [MoveTile2 source $ Tile2 tO x]) $    
                         case tO of
                             Horz ->
                                 if      t2 == (i - 1, j) then Just t2
@@ -270,8 +270,6 @@ movesOnSeparateSpace1 b (Space1 sSq@(i, j)) =
                                 if      t2 == (i, j - 1) then Just t2
                                 else if t1 == (i, j + 1) then Just sSq
                                 else Nothing     
-                                
-                    result = maybe [] (\ x -> [MoveTile2 source $ Tile2 tO x]) mbDestSq
                 in
                     acc ++ result                     
             ) [] t2s 
@@ -287,96 +285,84 @@ movesOnSpace2 (Board t1s t2s t4) s@(Space2 sO sSq) =
         (s2i, s2j) = s2
             
         mt1s = foldr 
-            ( \ source@(Tile1 tSq) acc -> 
+            (\ source@(Tile1 tSq) acc -> 
                 let
-                    result =                         
-                        let
-                            mbDestSqs =     
-                                case sO of
-                                    Horz ->                        
-                                        if      tSq == (s1i, s1j - 1) || tSq == (s1i, s1j + 1) then Just [s1] -- top, bottom on left
-                                        else if tSq == (s2i, s2j - 1) || tSq == (s2i, s2j + 1) then Just [s2] -- top, bottom on right
-                                        else if tSq == (s1i - 1, s1j) || tSq == (s2i + 1, s1j) then Just [s1, s2] -- left, right cap
-                                        else Nothing -- never the case
+                    result = maybe [] (\ xs -> map (\ x -> MoveTile1 source $ Tile1 x) xs) $     
+                        case sO of
+                            Horz ->                        
+                                if      tSq == (s1i, s1j - 1) || tSq == (s1i, s1j + 1) then Just [s1] -- top, bottom on left
+                                else if tSq == (s2i, s2j - 1) || tSq == (s2i, s2j + 1) then Just [s2] -- top, bottom on right
+                                else if tSq == (s1i - 1, s1j) || tSq == (s2i + 1, s1j) then Just [s1, s2] -- left, right cap
+                                else Nothing -- never the case
 
-                                    Vert ->
-                                        if      tSq == (s1i - 1, s1j) || tSq == (s1i + 1, s1j) then Just [s1] -- left, right on top                                        
-                                        else if tSq == (s2i - 1, s2j) || tSq == (s2i + 1, s2j) then Just [s2] -- left, right on bottom 
-                                        else if tSq == (s1i, s1j - 1) || tSq == (s2i, s2j + 1) then Just [s1, s2] -- top, bottom cap                                        
-                                        else Nothing -- never the case                                        
-                        in
-                            maybe [] (\ xs -> map (\ x -> MoveTile1 source $ Tile1 x) xs) mbDestSqs
+                            Vert ->
+                                if      tSq == (s1i - 1, s1j) || tSq == (s1i + 1, s1j) then Just [s1] -- left, right on top                                        
+                                else if tSq == (s2i - 1, s2j) || tSq == (s2i + 1, s2j) then Just [s2] -- left, right on bottom 
+                                else if tSq == (s1i, s1j - 1) || tSq == (s2i, s2j + 1) then Just [s1, s2] -- top, bottom cap                                        
+                                else Nothing -- never the case                                        
                 in
                     acc ++ result
             ) [] t1s 
                             
         mt2s = foldr 
-            ( \ source@(Tile2 tO _) acc ->                         
+            (\ source@(Tile2 tO _) acc ->                         
                 let   
                     (Squares2 t1 t2) = tile2ToSquares source  
 
-                    result =                         
-                        let
-                            mbDestSqs =   
-                                case sO of
-                                    Horz ->    
-                                        case tO of
-                                            Horz ->
-                                                if      t1 == (s1i, s1j - 1) || t1 == (s1i, s1j + 1) then Just [sSq] -- top, bottom
-                                                else if t2 == (s1i - 1, s1j) then Just [(s1i - 1, s1j), s1] -- left
-                                                else if t1 == (s2i + 1, s1j) then Just [s2, s1] -- right                                                  
-                                                else Nothing
+                    result = maybe [] (\ xs -> map (\ x -> MoveTile2 source $ Tile2 tO x) xs) $
+                        case sO of
+                            Horz ->    
+                                case tO of
+                                    Horz ->
+                                        if      t1 == (s1i, s1j - 1) || t1 == (s1i, s1j + 1) then Just [sSq] -- top, bottom
+                                        else if t2 == (s1i - 1, s1j) then Just [(s1i - 1, s1j), s1] -- left
+                                        else if t1 == (s2i + 1, s1j) then Just [s2, s1] -- right                                                  
+                                        else Nothing
 
-                                            Vert ->
-                                                if      t2 == (s1i, s1j - 1) || t2 == (s2i, s2j - 1) then Just [t2] -- top left, top right
-                                                else if t1 == (s1i, s1j + 1) then Just [s1] -- bottom left 
-                                                else if t1 == (s2i, s2j + 1) then Just [s2] -- bottom right         
-                                                else Nothing  
+                                    Vert ->
+                                        if      t2 == (s1i, s1j - 1) || t2 == (s2i, s2j - 1) then Just [t2] -- top left, top right
+                                        else if t1 == (s1i, s1j + 1) then Just [s1] -- bottom left 
+                                        else if t1 == (s2i, s2j + 1) then Just [s2] -- bottom right         
+                                        else Nothing  
 
-                                    Vert ->  
-                                        case tO of
-                                            Horz -> 
-                                                if      t2 == (s1i - 1, s1j) || t2 == (s2i - 1, s2j) then Just [t2] -- top left, bottom left      
-                                                else if t1 == (s1i + 1, s1j) then Just [s1] -- top right     
-                                                else if t1 == (s2i + 1, s2j) then Just [s2] -- bottom right                                             
-                                                else Nothing  
+                            Vert ->  
+                                case tO of
+                                    Horz -> 
+                                        if      t2 == (s1i - 1, s1j) || t2 == (s2i - 1, s2j) then Just [t2] -- top left, bottom left      
+                                        else if t1 == (s1i + 1, s1j) then Just [s1] -- top right     
+                                        else if t1 == (s2i + 1, s2j) then Just [s2] -- bottom right                                             
+                                        else Nothing  
 
-                                            Vert -> 
-                                                if      t1 == (s1i - 1, s1j) || t1 == (s1i + 1, s1j) then Just [sSq] -- left, right                                                            
-                                                else if t2 == (s1i, s1j - 1) then Just [(s1i, s1j - 1), s1] -- top                                                                                                     
-                                                else if t1 == (s2i, s2j - 1) then Just [s2, s1]  -- bottom                                                        
-                                                else Nothing            
-                        in
-                            maybe [] (\ xs -> map (\ x -> MoveTile2 source $ Tile2 tO x) xs) mbDestSqs                                                                                         
+                                    Vert -> 
+                                        if      t1 == (s1i - 1, s1j) || t1 == (s1i + 1, s1j) then Just [sSq] -- left, right                                                            
+                                        else if t2 == (s1i, s1j - 1) then Just [(s1i, s1j - 1), s1] -- top                                                                                                     
+                                        else if t1 == (s2i, s2j + 1) then Just [s2, s1]  -- bottom                                                        
+                                        else Nothing                                                                                                   
                 in
                     acc ++ result                          
             ) [] t2s      
             
         mt4s = foldr 
-            ( \ source acc ->                         
+            (\ source acc ->                         
                 let   
                     (Squares4 t_topLeft t_topRight t_bottomLeft _) = tile4ToSquares source  
                                         
-                    result =  
-                        let
-                            mbDestSq =                             
-                                case sO of
-                                    Horz ->   
-                                        if      t_topLeft == (s1i, s1j + 1) then Just s1 -- top  
-                                        else if t_bottomLeft == (s1i, s1j - 1) then Just t_bottomLeft -- bottom                                                                               
-                                        else Nothing  
+                    result =  maybe [] (\ x -> [MoveTile4 source $ Tile4 x]) $                           
+                        case sO of
+                            Horz ->   
+                                if      t_topLeft == (s1i, s1j + 1) then Just s1 -- top  
+                                else if t_bottomLeft == (s1i, s1j - 1) then Just t_bottomLeft -- bottom                                                                               
+                                else Nothing  
 
-                                    Vert -> 
-                                        if      t_topLeft == (s1i + 1, s1j) then Just s1 -- left 
-                                        else if t_topRight == (s1i - 1, s1j) then Just t_topRight -- right          
-                                        else Nothing                                                                                                        
-                        in
-                            maybe [] (\ x -> [MoveTile4 source $ Tile4 x]) mbDestSq                                
+                            Vert -> 
+                                if      t_topLeft == (s1i + 1, s1j) then Just s1 -- left 
+                                else if t_topRight == (s1i - 1, s1j) then Just t_topRight -- right          
+                                else Nothing                                                                                                                                       
                 in
                     acc ++ result 
             ) [] [t4]                     
     in
-        MoveTiles mt1s mt2s mt4s
+        MoveTiles (sort mt1s) (sort mt2s) (sort mt4s)
 
 
 boardSquares :: [Square]
@@ -550,7 +536,7 @@ solution =
         go _ [] = error "solution not reached"
         go visited toBeVisited =
             let
-                --current = trace("current :\n" ++ (toString $ toBoard $ last toBeVisited)) last toBeVisited
+                -- current = trace("current :\n" ++ (toString $ toBoard $ last toBeVisited)) last toBeVisited
                 -- current = trace("current :\n" ++ (show $ toBoard $ last toBeVisited)) last toBeVisited
                 -- visited' = trace ("\n\nvisited' : " ++ show (visited ++ [current])) visited ++ [current]
                 -- q = trace ("\ntoBeVisited : " ++ concatMap ((++) "\n" . toString . toBoard) toBeVisited) toBeVisited
