@@ -1,24 +1,28 @@
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Game
+    (solution)
     where     
 
 import Data.Function ( (&) )
 import Data.List ((\\), find, foldr, sort, sortBy, union, unfoldr)
+import GHC.Generics (Generic)
+import Data.Hashable
 import Debug.Trace (trace, traceIO)
 
 import Lib (newLineEvery)
 
 type Square = (Int, Int) -- (x, y) zero-based
-data Squares2 = Squares2 Square Square deriving (Eq, Show)
-data Squares4 = Squares4 Square Square Square Square deriving (Eq, Show)
+data Squares2 = Squares2 Square Square deriving (Eq, Generic, Show)
+data Squares4 = Squares4 Square Square Square Square deriving (Eq, Generic, Show)
 
-data Orientation = Horz | Vert deriving (Eq, Ord, Show)
+data Orientation = Horz | Vert deriving (Eq, Generic, Ord, Show)
 
-data Tile1 = Tile1 Square deriving (Eq, Ord, Show)   
-data Tile2  = Tile2 Orientation Square deriving (Eq, Ord, Show) -- left square for Horiz; top for Vert
+data Tile1 = Tile1 Square deriving (Eq, Generic, Ord, Show)   
+data Tile2  = Tile2 Orientation Square deriving (Eq, Generic, Ord, Show) -- left square for Horiz; top for Vert
 --data Tile2 Orientation = Tile2 Square deriving (Eq, Show) -- left square for Horiz; top for Vert
-data Tile4 = Tile4 Square deriving (Eq, Ord, Show) -- top-left square
+data Tile4 = Tile4 Square deriving (Eq, Generic, Ord, Show) -- top-left square
 
 -- type Tile1s = Tile1s Tile1 Tile1 Tile1 Tile1 deriving (Eq, Show)
 -- type Tile2s = Tile2s (Tile2 Horz) (Tile2 Vert) (Tile2 Vert) (Tile2 Vert) (Tile2 Vert) deriving (Eq, Show)
@@ -31,7 +35,7 @@ data Spaces
     | Combined Space2
         deriving (Eq, Show)    
 
-data Board = Board [Tile1] [Tile2] Tile4 deriving (Ord, Show)   
+data Board = Board [Tile1] [Tile2] Tile4 deriving (Generic, Ord, Show)   
 -- todo https://hackage.haskell.org/package/sorted-list-0.2.1.0/docs/Data-SortedList.html
 -- data Board = Board Tile1s Tile2s Tile4 deriving (Eq, Show)   
 
@@ -54,6 +58,8 @@ data Tagged_State
         deriving (Eq, Ord, Show)     
         
 
+type TaggedStateLookup = (Tagged_State, Int, Int)         
+
 instance Eq Board where
     (==) :: Board -> Board -> Bool
     (==) (Board at1s at2s at4) (Board bt1s bt2s bt4) = 
@@ -69,6 +75,12 @@ instance Eq MoveTiles where
         ( sort at2s == sort bt2s ) &&
         ( sort at1s == sort bt1s )    
 
+
+instance Hashable Board
+instance Hashable Tile1
+instance Hashable Tile2
+instance Hashable Tile4
+instance Hashable Orientation
 
 boardWidth :: Int
 boardWidth = 
@@ -123,52 +135,6 @@ tile4ToSquares (Tile4 topLeft@(i, j)) =
             topRight = (i + 1, j)
             bottomLeft = (i, j + 1)
             bottomRight = (i + 1, j + 1)     
-
-
-isMirror :: Board -> Board -> Bool
-isMirror (Board ta1s ta2s ta4) (Board tb1s tb2s tb4) = 
-    -- horizontal symmetry
-    let
-        isMirrorTile1 :: (Tile1, Tile1) -> Bool
-        isMirrorTile1 ((Tile1 aSq), (Tile1 bSq)) =
-            isMirrorSquare (aSq, bSq)    
-
-        isMirrorTile2 :: (Tile2, Tile2) -> Bool
-        isMirrorTile2 ((Tile2 ao aSq), (Tile2 bo bSq)) =
-            ao == bo &&
-                case ao of
-                    Horz -> isMirrorHorz (aSq, bSq)
-                    Vert -> isMirrorVert (aSq, bSq)  
-            
-        isMirrorTile4 :: (Tile4, Tile4) -> Bool
-        isMirrorTile4 ((Tile4 aSq), (Tile4 bSq)) =
-            isMirrorHorz (aSq, bSq)  
-
-        isMirrorTile1s :: ([Tile1], [Tile1]) -> Bool
-        isMirrorTile1s (as, bs) =
-            all (\a -> any (\b -> isMirrorTile1 (a, b)) bs) as
-
-        isMirrorTile2s :: ([Tile2], [Tile2]) -> Bool
-        isMirrorTile2s (as, bs) =
-            all (\a -> any (\b -> isMirrorTile2 (a, b)) bs) as
-
-        isMirrorSquare :: (Square, Square) -> Bool
-        isMirrorSquare ((ai, aj), (bi, bj)) =  
-            (aj == bj) && 
-            (ai == boardWidth - bi - 1)    
-            
-        isMirrorHorz :: (Square, Square) -> Bool
-        isMirrorHorz ((ai, aj), (bi, bj)) =   
-            (aj == bj) && 
-            (ai == boardWidth - bi - 2)    
-            
-        isMirrorVert :: (Square, Square) -> Bool      
-        isMirrorVert x =   
-            isMirrorSquare x  
-    in
-        isMirrorTile4 (ta4, tb4) &&
-        isMirrorTile2s (ta2s, tb2s) &&
-        isMirrorTile1s (ta1s, tb1s) 
 
 
 toNonStartState :: ParentState -> Board -> Tagged_State
@@ -488,31 +454,81 @@ startBoard =
 
 
 childStates :: Tagged_State -> [Tagged_State]
+childStates (Tagged_EndState _) = []
 childStates x =
     let
         (MoveTiles mt1s mt2s mt4s) = movesOn $ toBoard x   
     in
-        if isEndState x then
-            []
-        else
-            map (moveTile1 x) mt1s ++
-            map (moveTile2 x) mt2s ++
-            map (moveTile4 x) mt4s       
-            
+        map (moveTile1 x) mt1s ++
+        map (moveTile2 x) mt2s ++
+        map (moveTile4 x) mt4s               
 
-childStatesOfInterest :: [Tagged_State] -> Tagged_State -> [Tagged_State]
-childStatesOfInterest visited x = 
-    let
-        f :: Tagged_State -> Bool
-        f c = 
-            not $ any (\v -> 
-                let
-                    cb = toBoard c
-                    vb = toBoard v
-                in
-                    (==) cb vb || isMirror cb vb) visited                    
+
+mirror :: Board -> Board
+mirror (Board t1s t2s t4) =
+    let       
+        mirrorT1 :: Tile1 -> Tile1
+        mirrorT1 (Tile1 sq) =
+            Tile1 $ mirrorSquare sq 
+
+        mirrorT2 :: Tile2 -> Tile2
+        mirrorT2 (Tile2 o sq) =
+            Tile2 o $
+                case o of
+                    Horz -> mirrorHorz sq
+                    Vert -> mirrorVert sq 
+
+        mirrorT4 :: Tile4 -> Tile4
+        mirrorT4 (Tile4 sq) =
+            Tile4 $ mirrorHorz sq
+
+        mirrorSquare :: Square -> Square
+        mirrorSquare (i, j) =
+            (boardWidth - i - 1, j)       
+            
+        mirrorHorz :: Square -> Square
+        mirrorHorz (i, j) =
+            (boardWidth - i - 2, j)
+
+        mirrorVert :: Square -> Square
+        mirrorVert sq =
+            mirrorSquare sq 
+
+        t1s' = map mirrorT1 t1s
+        t2s' = map mirrorT2 t2s
+        t4' = mirrorT4 t4            
     in
-        filter f $ childStates x
+        Board t1s' t2s' t4'
+
+
+taggedStateToLookup :: Tagged_State -> TaggedStateLookup      
+taggedStateToLookup x =
+    let
+        b = toBoard x
+        m = mirror b
+    in
+        (x, hash b, hash m)
+
+
+lookupToTaggedStated :: TaggedStateLookup -> Tagged_State
+lookupToTaggedStated (x, _, _) =
+    x
+
+
+childStatesOfInterest :: [TaggedStateLookup] -> TaggedStateLookup -> [TaggedStateLookup]
+childStatesOfInterest visited (x, _, _) = 
+    let
+        f :: TaggedStateLookup -> Bool
+        f (_,  childHash, _) = 
+            all 
+                (\ (_, visitedHash, visitedMirrorHash) -> 
+                    (childHash /= visitedHash) &&
+                    (childHash /= visitedMirrorHash)
+                ) visited
+    in
+        childStates x
+            & map taggedStateToLookup
+            & filter f
 
 
 isSolved :: Board -> Bool
@@ -532,12 +548,12 @@ solution =
     -- http://aleph.nz/post/search_in_haskell/
 
     let
-        go :: [Tagged_State] -> [Tagged_State] -> [Tagged_State]
+        go :: [TaggedStateLookup] -> [TaggedStateLookup] -> [Tagged_State]
         go _ [] = error "solution not reached"
         go visited toBeVisited =
             let
-                -- current = trace("current :\n" ++ (toString $ toBoard $ last toBeVisited)) last toBeVisited
-                -- current = trace("current :\n" ++ (show $ toBoard $ last toBeVisited)) last toBeVisited
+                --current = trace("current :\n" ++ (toString $ toBoard $ lookupToTaggedStated $ last toBeVisited)) last toBeVisited
+                -- current = trace("current :\n" ++ (show $ toBoard $ lookupToTaggedStated $ last toBeVisited)) last toBeVisited
                 -- visited' = trace ("\n\nvisited' : " ++ show (visited ++ [current])) visited ++ [current]
                 -- q = trace ("\ntoBeVisited : " ++ concatMap ((++) "\n" . toString . toBoard) toBeVisited) toBeVisited
                 --toBeVisited' = trace ("\ntoBeVisited' : " ++ concatMap ((++) "\n" . toString . toBoard) (childStatesOfInterest visited current ++ init toBeVisited)) (childStatesOfInterest visited current) ++ init toBeVisited
@@ -547,12 +563,12 @@ solution =
                 visited' = current : visited
                 toBeVisited' = childStatesOfInterest visited current ++ init toBeVisited
             in            
-                if isEndState current then
-                    visited'
+                if isEndState $ lookupToTaggedStated current then
+                    map lookupToTaggedStated visited'
                 else
                     go visited' toBeVisited'
 
-        xs = go [] [startState]
+        xs = go [] [taggedStateToLookup startState]
         lastVisited = last xs
 
         f :: Tagged_State -> Maybe (Board, Tagged_State)

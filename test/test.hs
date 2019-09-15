@@ -14,7 +14,7 @@ tests = testGroup "Tests" [unitTests]
 
 
 unitTests = testGroup "Unit tests" $
-    [ testGroup "isMirror" $
+    [ testGroup "mirror" $
         let
             t1s = 
                 [ Tile1 (1, 3)
@@ -54,10 +54,10 @@ unitTests = testGroup "Unit tests" $
             b' = Board t1s' t2s' t4'  
         in
             [ testCase "yes on symmetrical" $ 
-                (isMirror startBoard startBoard) @?= True   
+                mirror startBoard @?= startBoard   
 
             , testCase "yes mirror" $ 
-                (isMirror b b') @?= True                                                                         
+                mirror b @?= b'                                                                         
             ] 
 
     , testGroup "toString" $
@@ -422,6 +422,10 @@ unitTests = testGroup "Unit tests" $
             , testCase "False" $
                 (b1 == startBoard) @?= False
             ]
-    ]
 
-    
+    -- , testGroup "childStatesOfInterest" $
+    --     [ testCase "startState" $
+    --         (map ((++ "\n\n") . toString . toBoard) $ childStatesOfInterest [] startState) @?= 
+    --             ["v44v\nv44v\nvhhv\nv11v\n*1*1\n","v44v\nv44v\nvhhv\nv11v\n**11\n","v44v\nv44v\nvhhv\nv*1v\n11*1\n","v44v\nv44v\nvhhv\nv1*v\n1*11\n","v44v\nv44v\nvhhv\nv11v\n11**\n","v44v\nv44v\nvhhv\nv11v\n1*1*\n"]
+    --     ]            
+    ]
